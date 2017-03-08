@@ -1,0 +1,98 @@
+---
+title: "Education indicators correlated"
+author: "Laurent Berder"
+output: html_notebook
+---
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(xlsx)
+library(ggplot2)
+library(corrplot)
+```
+I'm looking at which factors could influence each other around the family and education themes.
+Data comes downloaded from Kaggle, originated from the World Bank (https://www.kaggle.com/worldbank/world-development-indicators/downloads/world-development-indicators-release-2016-01-28-06-31-53.zip)
+```{r import data, include=FALSE}
+system("ls ../input", intern=TRUE)
+indicators<-fread("../input/Indicators.csv",stringsAsFactors=TRUE)
+```
+# Selection
+I first identified the indicators that I wanted to compare:
+
+* Adult literacy rate, population 15+ years, both sexes (%)
+* Expenditure on education as % of total government expenditure (%)
+* Children in employment, total (% of children ages 7-14)
+* Contraceptive prevalence (% of women ages 15-49)
+* Women who believe a husband is justified in beating his wife (any of five reasons) (%)
+* Primary completion rate, both sexes (%)
+* Poverty headcount ratio at national poverty lines (% of population)
+* GINI index (World Bank estimate)
+* Prevalence of undernourishment (% of population)
+
+```{r indicators}
+educ_indic<-c("Adult literacy rate, population 15+ years, both sexes (%)","Expenditure on education as % of total government expenditure (%)","Children in employment, total (% of children ages 7-14)","Contraceptive prevalence (% of women ages 15-49)","Women who believe a husband is justified in beating his wife (any of five reasons) (%)","Primary completion rate, both sexes (%)","Poverty headcount ratio at national poverty lines (% of population)","GINI index (World Bank estimate)","Prevalence of undernourishment (% of population)")
+education<- indicators %>% filter(IndicatorName %in% educ_indic)
+```
+# Grouping
+I create a data.table with these indicators as columns:
+```{r data.table}
+educationw <- spread(data=education,key=IndicatorName,value=Value) %>% select(-c(CountryCode,IndicatorCode))
+educationw <- as.data.table(unite(educationw,"Country_Year",c(CountryName,Year)) %>% group_by(Country_Year))
+colnames(educationw)<-c("Country_Year","Litteracy","Children_Employment","Contraceptive","Education_Expenditure","Gini","Poverty_Ratio","Undernourishment","Primary_Completion","Beating")
+```
+Then regroup the values by country and year
+```{r regroup}
+educationw <- educationw[, list(Litteracy = sum(Litteracy, na.rm = TRUE), Children_Employment = sum(Children_Employment, na.rm = TRUE), Contraceptive = sum(Contraceptive, na.rm = TRUE), Education_Expenditure = sum(Education_Expenditure, na.rm = TRUE), Gini = sum(Gini, na.rm = TRUE),Poverty_Ratio = sum(Poverty_Ratio, na.rm = TRUE), Undernourishment = sum(Undernourishment, na.rm = TRUE), Primary_Completion = sum(Primary_Completion, na.rm = TRUE),Beating = sum(Beating, na.rm = TRUE)), by = Country_Year]
+rownames(educationw) <- educationw$Country_Year
+educationw <- select(educationw,-Country_Year)
+educationw[educationw==0]<-NA
+```
+
+# Correlations
+I then calculate the correlations between all the indicators. 
+```{r correlations}
+M <- cor(educationw,use="complete.obs") %>% round(3)
+```
+Many of the indicators are not known for some countries, or for some years. I made sure the empty values would not influence the results with the __"complete.obs"__ parameter.
+
+# P-Value
+I also needed to create a function to fill in a matrix of all the p-values on the correlations:
+```{r p-values}
+cor.mtest <- function(mat, ...) {
+   mat <- as.matrix(mat)
+   n <- ncol(mat)
+   p.mat<- matrix(NA, n, n)
+   diag(p.mat) <- 0
+   for (i in 1:(n - 1)) {
+       for (j in (i + 1):n) {
+           tmp <- cor.test(mat[, i], mat[, j], ...)
+           p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+       }
+   }
+   colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+   p.mat
+}
+p.mat <- cor.mtest(educationw)
+```
+I admit having used a function found on [Statistical tools for high-throughput data analysis](http://www.sthda.com/)
+
+# Plotting
+Final step is to plot the correlations, barring out the insignificant coefficients:
+```{r plot}
+corrplot(M, type="upper", order="hclust", p.mat = p.mat, sig.level = 0.05, main="Family & Education - Correlation of indicators")
+```
+
+We can see that the Gini Index is only linked with the poverty ratio (which must be a part of its calculation).
+
+Women believing their husband is justified beating them are strongly linked to many of the indicators I chose, showing that with more education, more litteracy, more birth control, less undernourishment and poverty, domestic violence becomes less of an option.
+
+The percentage of completion of primary school, however, is strongly linked to adult litteracy (obviously).
+
+Adult litteracy is very strongly linked to the use of contraceptives.
+
+Government expenditure in education does not seem to have a strong impact on the other indicators, except for poverty ratio.
+
+Child labor seems to be encouraged by poverty, and by poor family planning, as well as (at a lower coefficient) low adult litteracy and undernourishment.
+The use of contraceptives seems to be linked with lower poverty, and strongly linked with less child labor, hinting that planned children will not be sent to work as much as the others.
