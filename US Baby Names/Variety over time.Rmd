@@ -1,0 +1,95 @@
+---
+title: "Variation over time"
+author: "Laurent Berder"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+## Preparation
+Load packages:
+```{r libraries, message=FALSE, warning=FALSE}
+library(data.table)
+library(sqldf)
+library(dplyr)
+library(tidyr)
+library(xlsx)
+library(plotly)
+```
+
+Import data:
+```{r import}
+names <- read.csv("../input/NationalNames.csv")
+```
+
+The first thing I'll do to avoid having to use filters all through the code is to separate boys' names from girls' names:
+```{r separate}
+boys<-filter(names,Gender=="M")
+girls<-filter(names,Gender=="F")
+```
+By the way, I realize that *nrow(boys)+nrow(girls)* does not equal *nrow(names)*: most of the 1880 data is missing its gender type.
+
+
+## Sum of names and number of distinct names
+I'm wondering if the number of names is evolving the same way as the number of data over the years.
+
+First off, I'm summarizing data by year, showing the number of distinct names, as well as the total of names:
+```{r count sum}
+boycount<-group_by(boys,Year) %>% summarise(nbnames=n_distinct(Name),sum=sum(Count))
+girlcount<-group_by(girls,Year) %>% summarise(nbnames=n_distinct(Name),sum=sum(Count))
+```
+
+I'm then using the package *Plotly* to create an interactive plot:
+```{r plot sum}
+ay <- list(
+  tickfont = list(color = "orange"),
+  overlaying = "y",
+  side = "right"
+)
+
+p<-plot_ly(data=boycount, x=Year, y=nbnames, type = "scatter", mode="lines", name="Number of distinct boy names") %>%
+  add_trace(data=boycount, x=Year, y=sum, type = "scatter", mode="lines", name="Sum of boy names", yaxis = "y2") %>%
+  add_trace(data=girlcount, x=Year, y=nbnames, type = "scatter", mode="lines", name="Number of distinct girl names") %>%
+  add_trace(data=girlcount, x=Year, y=sum, type = "scatter", mode="lines", name="Sum of girl names", yaxis = "y2") %>%
+  layout(title="Evolution of number of names count and sum", yaxis2=ay)
+p
+```
+It seems the number of distinct names has grown more rapidly over the past 60 years than the number of total names, bringing more variety.
+
+This is even truer for girls' names, which historically have always had more diversity.
+
+## Most common names
+I'm then looking at the most commonly used names per year, and what percentage they represent.
+
+First I need to summarize the data (I'm using the total sum which I've already calculated above):
+```{r common names, warning=FALSE, message=FALSE}
+commonboy<-sqldf("select year, max(Count), Name from boys group by Year") %>% left_join(boycount, by="Year")
+colnames(commonboy)<-c("Year","Maximum","Name","nb","Total")
+commonboy<-mutate(commonboy,Percent=Maximum/Total*100) %>% select(c(Year,Name,Percent))
+
+commongirl<-sqldf("select year, max(Count), Name from girls group by Year") %>% left_join(girlcount, by="Year")
+colnames(commongirl)<-c("Year","Maximum","Name","nb","Total")
+commongirl<-mutate(commongirl,Percent=Maximum/Total*100) %>% select(c(Year,Name,Percent))
+```
+
+Then I'm plotting these figures with plotly again:
+```{r common plot}
+b <- list(family = "Courier New, monospace",
+  size = 10,
+  color = "#00008B")
+g <- list(family = "Courier New, monospace",
+  size = 10,
+  color = "#FF4500", orientation="v")
+
+p<-plot_ly(data=commonboy, x = Year, y = Percent, text = Name, mode = "markers+text+lines", textfont = b, textposition = "top middle", name="Most common boy's name") %>%
+    add_trace(data=commongirl, x = Year, y = Percent, text = Name, mode = "markers+text+lines", textfont = g, textposition = "top middle", name="Most common girl's name") %>%
+    layout(title="Most common names in percentage per gender and per year", showlegend=FALSE)
+p
+```
+There may be work to do for a more readable result.
+
+It's interesting to see that the classical couple **John - Mary** ruled from 1880 to 1922, with a gradually eroding preponderance (Mary remaining unbeated lead girl's name until 1946)
+
+We can clearly see that the diversity increases, as the most common names takes less and less part in the composition of the global population.
+
+The girls' curve is less regular than the boys', with a huge peak at the introduction of **Linda** in 1947-48, and another one only after the introduction of **Jennifer** in 1970.
