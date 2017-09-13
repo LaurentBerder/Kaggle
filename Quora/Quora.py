@@ -46,26 +46,27 @@ def analyse_questions(dataframe):
 
     return dataframe['commonratio']
 
-# read file
-train = pd.read_csv("/home/laurent/R_Projects/Quora/train.csv", index_col="id")
-train['commonratio'] = analyse_questions(train)
+def main():
+    # read file
+    train = pd.read_csv("train.csv", index_col="id")
+    train['commonratio'] = analyse_questions(train)
 
-# Optimize weight compared to the number of duplicates in the dataset
-GLOBAL_MEAN = np.mean(train['is_duplicate'])
-def minimize_train_log_loss( W ):
-    train['prediction'] = GLOBAL_MEAN + train['commonratio'] * W[0] + W[1]
-    score = log_loss( train['is_duplicate'], train['prediction'] )
+    # Optimize weight compared to the number of duplicates in the dataset
+    GLOBAL_MEAN = np.mean(train['is_duplicate'])
+    def minimize_train_log_loss( W ):
+        train['prediction'] = GLOBAL_MEAN + train['commonratio'] * W[0] + W[1]
+        score = log_loss( train['is_duplicate'], train['prediction'] )
 
-res = minimize(minimize_train_log_loss, [0.00,  0.00], method='Nelder-Mead', tol=1e-4, options={'maxiter': 400})
-W = res.x
-print('Best weights: ', W)
+    res = minimize(minimize_train_log_loss, [0.00,  0.00], method='Nelder-Mead', tol=1e-4, options={'maxiter': 400})
+    W = res.x
+    print('Best weights: ', W)
 
 
-test = pd.read_csv("/home/laurent/R_Projects/Quora/test.csv")
-test['commonratio'] = analyse_questions(test)
-test['weighted'] = GLOBAL_MEAN + test['commonratio'] * W[0] + W[1]
-dupes = []
-for row in test.index:
-    dupes.append(int(round(test['weighted'][row])))
-test['is_duplicate'] = dupes
-test[['test_id', 'is_duplicate']].to_csv('/home/laurent/R_Projects/Quora/submission.csv', header=True, index=False)
+    test = pd.read_csv("/home/laurent/R_Projects/Quora/test.csv")
+    test['commonratio'] = analyse_questions(test)
+    test['weighted'] = GLOBAL_MEAN + test['commonratio'] * W[0] + W[1]
+    dupes = []
+    for row in test.index:
+        dupes.append(int(round(test['weighted'][row])))
+    test['is_duplicate'] = dupes
+    test[['test_id', 'is_duplicate']].to_csv('/home/laurent/R_Projects/Quora/submission.csv', header=True, index=False)
