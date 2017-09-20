@@ -294,8 +294,65 @@ country_mentions_by_country = country_mentions.groupby("country")[country_mentio
 #Check the tables
 country_mentions_by_year.head()
 country_mentions_by_country.head()
-country_mentions_by_year.plot()
+#Still not readable... Should order the columns by their sum, then only keep maybe 10?
+col_order_year = [k for k in pd.DataFrame({'sum': country_mentions_by_year.sum()}).sort('sum', ascending=False, inplace=False).index]
+country_mentions_by_year[col_order_year[0:20]].plot()
 
+
+# Trying to plot a sankey diagram of countries mentioning each other.
+# First need to melt country_mentions_by_country to long form
+sankey_data = country_mentions_by_country.unstack().reset_index()
+
+import plotly.plotly as py
+from plotly.offline import download_plotlyjs, init_notebook_mode, plot,iplot
+init_notebook_mode()
+data = dict(
+    type='sankey',
+    domain = dict(
+      x =  [0,1],
+      y =  [0,1]
+    ),
+    orientation = "h",
+    valueformat = ".0f",
+    valuesuffix = "TWh"   
+  )
+
+layout =  dict(
+    title = "Which countries mention which in the UN's General Assembly\n(1970-2015)",
+    font = dict(
+      size = 10
+    )
+)
+
+data_trace = dict(
+    type='sankey',
+    width = 1118,
+    height = 772,
+    domain = dict(
+      x =  [0,1],
+      y =  [0,1]
+    ),
+    orientation = "h",
+    valueformat = ".0f",
+    valuesuffix = "TWh",
+    node = dict(
+      pad = 15,
+      thickness = 15,
+      line = dict(
+        color = "black",
+        width = 0.5
+      ),
+      label =  sankey_data['country']
+  ),
+    link = dict(
+      source =  sankey_data['level_0'],
+      target =  sankey_data['country'],
+      value =  sankey_data[0],
+      label =  sankey_data['level_0']
+  ))
+
+fig = dict(data=[data_trace], layout=layout)
+iplot(fig, validate=False)
 
 #We need to remove the punctuation and english stopwords to only keep the essence of the text.
 stop_words = set(stopwords.words('english'))
