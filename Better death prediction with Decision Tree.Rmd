@@ -1,0 +1,116 @@
+What I'm doing here is trying to predict whether a character is dead or alive.
+
+First things first, let's load some necessary packages and the **character-predictions** file
+```{r library, message=FALSE, warning=FALSE}
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(plotly)
+library(rpart)
+
+predictions<-fread("../input/character-predictions.csv",stringsAsFactors=TRUE)
+```
+
+# First run
+#### Separation
+We need to learn on a training sample, and I'm going for a sample of 40% the size of the original file.
+```{r sampling}
+training <- predictions[sample(nrow(predictions), floor(nrow(predictions) * 0.4)), ]
+```
+
+#### Decision tree
+On this training sample, I'm running a Decision Tree to compare the current **isAlive** status of each characters and all the variables I believe are relevant for a prediction, such as:
+
+* Date of birth
+* Culture
+* House
+* Gender
+* Whether character's mother is still alive
+* Whether character's father is still alive
+* Whether character's children are still alive
+* Whether character's spouse is still alive
+* Whether character is married
+* Whether character is noble
+* Whether character is popular
+
+```{r Decision Tree}
+fit<-rpart(isAlive ~ dateOfBirth + culture + house + male + isAliveMother + isAliveFather + isAliveHeir + isAliveSpouse + isMarried + isNoble + isPopular, data = training, method="class")
+```
+#### Prediction
+This gives us a set of rules that we can apply to the whole file to come up with a boolean prediction on the character's fate.
+```{r prediction}
+predictions$myprediction<-as.integer(predict(fit, predictions, type = "class"))
+predictions$myprediction[predictions$myprediction==1]<-0
+predictions$myprediction[predictions$myprediction==2]<-1
+```
+I'm then assigning a score to each of my predictions and previously existing predictions, based on the comparison with the characters' current condition.
+```{r score}
+predictions$myscore<-ifelse(predictions$isAlive==predictions$myprediction, "OK", ifelse(predictions$isAlive<predictions$myprediction, "Should be dead", "Should be alive"))
+predictions$predscore<-ifelse(predictions$isAlive==predictions$pred, "OK", ifelse(predictions$isAlive<predictions$pred, "Should be dead", "Should be alive"))
+```
+
+#### Comparison with previously existing one
+This time, what I'm doing is comparing the scores for both predictors.
+```{r comparison}
+scores<-group_by(select(predictions,c(myscore,predscore)),myscore, predscore) %>% summarise(n=n())
+
+scores$myscore<-factor(scores$myscore, levels=c("Should be dead","OK", "Should be alive"))
+scores$predscore<-factor(scores$predscore, levels=c("Should be dead","OK", "Should be alive"))
+scores<-arrange(scores, myscore, predscore)
+
+plot_ly(data=scores, x=myscore, y=predscore, size=n, type = "scatter", mode="markers") %>%
+  layout(title="Comparison of my prediction scores with the provided 'pred'")
+```
+As you can see, both predictions are rather accurate, mostly falling in the OK category.
+
+It seems like my predictor is a little more optimistic (often predicting a character's survival while he/she died in horrible pain), while the previous prediction was more pessimistic.
+
+On the global view, however, we can see that my prediction has a slightly better achievement: the middle column shows larger bubbles than the middle row.
+
+
+
+But this is based on a random sample as a first step, which may have had an impact on the results. I'm therefore going to reproduce this a few times to have a more trustworthy comparison on the long run.
+
+# Repeating the process
+I need to prepare the dataframe that will receive the results.
+```{r preparation}
+predbetter<-vector()
+mybetter<-vector()
+bothgood<-vector()
+bothwrong<-vector()
+results<-data.frame(cbind(predbetter,mybetter,bothgood,bothwrong))
+rm(predbetter,mybetter,bothgood,bothwrong)
+```
+Then I run the loop 100 times before I compare the results.
+```{r loop}
+for (i in 1:100)
+{
+  training <- predictions[sample(nrow(predictions), floor(nrow(predictions) * 0.4)), ]
+  fit<-rpart(isAlive ~ dateOfBirth + culture + house + male + isAliveMother + isAliveFather + isAliveHeir + isAliveSpouse + isMarried + isNoble + isPopular, data = training, method="class")
+  
+  predictions$myprediction<-as.integer(predict(fit, predictions, type = "class"))
+  predictions$myprediction[predictions$myprediction==1]<-0
+  predictions$myprediction[predictions$myprediction==2]<-1
+  
+  predictions$myscore<-ifelse(predictions$isAlive==predictions$myprediction, "OK", ifelse(predictions$isAlive<predictions$myprediction, "Should be dead", "Should be alive"))
+  predictions$predscore<-ifelse(predictions$isAlive==predictions$pred, "OK", ifelse(predictions$isAlive<predictions$pred, "Should be dead", "Should be alive"))
+  
+  scores<-group_by(select(predictions,c(myscore,predscore)),myscore, predscore) %>% summarise(n=n()) %>% spread(myscore,n)
+  
+  results[i,1]<-sum(scores[1,3:4], na.rm = TRUE)
+  results[i,2]<-sum(scores[2:3,2], na.rm = TRUE)
+  results[i,3]<-scores[1,2]
+  results[i,4]<-sum(scores[2:3,3:4],na.rm = TRUE)
+}
+
+plot_ly(data=results, y=predbetter ,type="box", name="Better results with\nprevious prediction") %>%
+  add_trace(data=results, y=mybetter, type="box", name="Better results\nwith my prediction") %>%
+  add_trace(data=results, y=bothwrong, type="box", name="Both predictions are wrong") %>%
+  add_trace(data=results, y=bothgood, type="box", name="Both predictions are good") %>%
+  layout(title="Comparison of prediction results over 100 runs", showlegend=FALSE, yaxis=list(title=""))
+  ```
+  I encourage you to zoom on the plot to better see the detail of the 3 first boxes, as (I mentioned this already) the **"Both predictions are good"** results are so much of a majority that it makes the plot hard to read.
+  
+  You can see that the lowest category is the **"Better results with previous prediction"**, slightly common than **"Both predictions are wrong"**.
+  
+  **"Better results\nwith my prediction"**, however clearly shows itself to be ahead.
